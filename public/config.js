@@ -2,7 +2,7 @@
 // Nunca coloque chaves privadas da FreeTheAI ou segredos do Firebase neste arquivo.
 window.SORA_CONFIG = {
   // Será preenchido com a URL do Cloudflare Worker quando publicarmos o proxy.
-  workerUrl: "COLE_A_URL_DO_WORKER_AQUI",
+  workerUrl: "https://sora-3.migueltoproblox.workers.dev/",
   // O ID exato do modelo será configurado após conferirmos os modelos disponíveis.
   videoModel: "",
   videoModelPro: "",
