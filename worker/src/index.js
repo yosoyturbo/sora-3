@@ -1,17 +1,18 @@
 
 const AGNES_API = "https://apihub.agnes-ai.com";
 
-// Cole sua chave nova aqui.
-// Este arquivo deve ficar somente no repositório privado.
-const AGNES_API_KEY = "sk-vmy5kMBoeWIQtPv4B6e04PjZCczHRpOxjd24QI8YOSyUyVjO";
-
 const ALLOWED_ORIGINS = new Set([
   "https://yosoyturbo.github.io"
 ]);
 
+const MODEL = "agnes-video-v2.0";
+const FRAME_RATE = 24;
+
 function cors(origin) {
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.has(origin) ? origin : "null",
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.has(origin)
+      ? origin
+      : "null",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Max-Age": "86400",
@@ -19,28 +20,81 @@ function cors(origin) {
   };
 }
 
-function error(message, status, headers) {
-  return Response.json({ error: message }, { status, headers });
+function jsonError(message, status, headers) {
+  return Response.json(
+    { error: message },
+    { status, headers }
+  );
+}
+
+function getVideoSettings(data) {
+  const match = String(data.size || "1280x720")
+    .match(/^(\d{2,4})x(\d{2,4})$/);
+
+  if (!match) {
+    throw new Error("Resolução inválida.");
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+
+  if (
+    width < 256 || width > 1920 ||
+    height < 256 || height > 1920
+  ) {
+    throw new Error("Resolução fora dos limites permitidos.");
+  }
+
+  const seconds = Number(data.seconds || 5);
+
+  if (!Number.isFinite(seconds) || seconds < 1 || seconds > 18) {
+    throw new Error("Duração inválida. Use entre 1 e 18 segundos.");
+  }
+
+  const requestedFrames = Math.round(seconds * FRAME_RATE);
+
+  // A Agnes utiliza num_frames no formato 8n + 1.
+  const numFrames = Math.min(
+    441,
+    Math.max(
+      9,
+      Math.round((requestedFrames - 1) / 8) * 8 + 1
+    )
+  );
+
+  return {
+    width,
+    height,
+    num_frames: numFrames,
+    frame_rate: FRAME_RATE
+  };
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
     const headers = cors(origin);
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers });
+      return new Response(null, {
+        status: 204,
+        headers
+      });
     }
 
     if (!ALLOWED_ORIGINS.has(origin)) {
-      return error("Origem não autorizada", 403, headers);
+      return jsonError("Origem não autorizada.", 403, headers);
     }
 
-    if (
-      !AGNES_API_KEY ||
-      AGNES_API_KEY === "COLE_SUA_CHAVE_AGNES_AQUI"
-    ) {
-      return error("Configure a chave da Agnes no Worker", 500, headers);
+    // A chave é obtida do Secret configurado no Cloudflare.
+    const apiKey = env.AGNES_API_KEY;
+
+    if (!apiKey) {
+      return jsonError(
+        "A chave AGNES_API_KEY não está configurada no Cloudflare.",
+        500,
+        headers
+      );
     }
 
     const incoming = new URL(request.url);
@@ -55,63 +109,71 @@ export default {
       try {
         data = await request.json();
       } catch {
-        return error("JSON inválido", 400, headers);
+        return jsonError("JSON inválido.", 400, headers);
       }
 
-      const dimensions = String(data.size || "1280x720").match(/^(\d+)x(\d+)$/);
-      const width = dimensions ? Number(dimensions[1]) : 1280;
-      const height = dimensions ? Number(dimensions[2]) : 720;
+      if (
+        !data ||
+        typeof data.prompt !== "string" ||
+        !data.prompt.trim()
+      ) {
+        return jsonError("Digite uma descrição para o vídeo.", 400, headers);
+      }
 
-      const seconds = Math.max(1, Math.min(Number(data.seconds) || 5, 18));
-      const frameRate = 24;
-      const requestedFrames = Math.round(seconds * frameRate);
-      const numFrames = Math.min(
-        441,
-        Math.max(9, Math.round((requestedFrames - 1) / 8) * 8 + 1)
-      );
+      if (data.prompt.length > 2000) {
+        return jsonError("A descrição é muito longa.", 400, headers);
+      }
+
+      let settings;
+
+      try {
+        settings = getVideoSettings(data);
+      } catch (err) {
+        return jsonError(err.message, 400, headers);
+      }
 
       body = JSON.stringify({
-        model: "agnes-video-v2.0",
-        prompt: data.prompt,
-        width,
-        height,
-        num_frames: numFrames,
-        frame_rate: frameRate
+        model: MODEL,
+        prompt: data.prompt.trim(),
+        ...settings
       });
 
-      if (!data.prompt || typeof data.prompt !== "string") {
-        return error("Prompt inválido", 400, headers);
-      }
-
       target = `${AGNES_API}/v1/videos`;
+
     } else if (path === "/agnesapi" && request.method === "GET") {
       const videoId = incoming.searchParams.get("video_id");
 
-      if (!videoId || !/^[A-Za-z0-9_-]+$/.test(videoId)) {
-        return error("video_id inválido", 400, headers);
+      if (
+        !videoId ||
+        !/^[A-Za-z0-9_-]+$/.test(videoId)
+      ) {
+        return jsonError("ID do vídeo inválido.", 400, headers);
       }
 
       target =
         `${AGNES_API}/agnesapi?video_id=${encodeURIComponent(videoId)}` +
-        `&model_name=agnes-video-v2.0`;
+        `&model_name=${encodeURIComponent(MODEL)}`;
+
     } else {
-      return error("Rota não encontrada", 404, headers);
+      return jsonError("Rota não encontrada.", 404, headers);
     }
 
     try {
       const upstream = await fetch(target, {
         method: request.method,
         headers: {
-          Authorization: `Bearer ${AGNES_API_KEY}`,
+          "Authorization": `Bearer ${apiKey}`,
           ...(body ? { "Content-Type": "application/json" } : {})
         },
-        body
+        ...(body ? { body } : {})
       });
 
       const responseHeaders = new Headers(headers);
+
       responseHeaders.set("Cache-Control", "no-store");
 
       const contentType = upstream.headers.get("Content-Type");
+
       if (contentType) {
         responseHeaders.set("Content-Type", contentType);
       }
@@ -120,8 +182,13 @@ export default {
         status: upstream.status,
         headers: responseHeaders
       });
-    } catch {
-      return error("Falha ao conectar à Agnes AI", 502, headers);
+
+    } catch (err) {
+      return jsonError(
+        "Não foi possível conectar à Agnes AI. Tente novamente.",
+        502,
+        headers
+      );
     }
   }
 };
