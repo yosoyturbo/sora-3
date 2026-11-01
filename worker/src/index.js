@@ -3,7 +3,7 @@ const AGNES_API = "https://apihub.agnes-ai.com";
 
 // Cole sua chave nova aqui.
 // Este arquivo deve ficar somente no repositório privado.
-const AGNES_API_KEY = "COLE_SUA_CHAVE_AGNES_AQUI";
+const AGNES_API_KEY = "sk-vmy5kMBoeWIQtPv4B6e04PjZCczHRpOxjd24QI8YOSyUyVjO";
 
 const ALLOWED_ORIGINS = new Set([
   "https://yosoyturbo.github.io"
