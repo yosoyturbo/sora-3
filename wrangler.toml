@@ -1,0 +1,6 @@
+name = "sora-3-api"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+# Não coloque segredos aqui. Configure FREETHEAI_API_KEY com `wrangler secret put`.
